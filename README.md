@@ -58,6 +58,25 @@ socket.on('open', function () {
 process.stdin.pipe(socket).pipe(process.stdout)
 ```
 
+To only run hole-punching and get the raw UDP endpoint info (without a Noise session), use `connectRaw`:
+
+```js
+const DHT = require('hyperdht')
+const { RawSocket } = DHT
+
+const dht = new DHT()
+const rawSocket = dht.connectRaw(remotePubKey)
+
+rawSocket.on('socket', ({ localPort, remoteHost, remotePort }) => {
+  console.log(`Hole punched! Local port: ${localPort}, remote: ${remoteHost}:${remotePort}`)
+  // Bind your UDP protocol (for example WireGuard) to localPort here.
+})
+
+rawSocket.on('close', () => {
+  console.log('Failed to connect or was destroyed')
+})
+```
+
 ## API
 
 #### `const node = new DHT([options])`
@@ -117,7 +136,8 @@ Options include:
     // if you do return false, else return true
     // remoteHandshakePayload contains their ip and some more info
     return true
-  }
+  },
+  raw: true // return RawSocket stubs instead of encrypted NoiseSecretStream sockets
 }
 ```
 
@@ -182,6 +202,10 @@ Options include:
   keyPair // optional key pair to use when connection (defaults to node.defaultKeyPair)
 }
 ```
+
+#### `const rawSocket = node.connectRaw(remotePublicKey, [options])`
+
+Like `connect`, but uses a `RawSocket` stub so you can read the punched UDP endpoint details from the `'socket'` event and then immediately release the UDX stream.
 
 #### `socket.on('open')`
 

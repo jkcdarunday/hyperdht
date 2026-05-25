@@ -138,6 +138,57 @@ test('createServer + connect - exchange data', { timeout: 60000 }, async functio
   await server.close()
 })
 
+test('connectRaw emits socket details', async function (t) {
+  const [a, b] = await swarm(t)
+
+  const server = a.createServer(function (socket) {
+    socket.on('error', noop)
+  })
+  await server.listen()
+
+  const rawSocket = b.connectRaw(server.publicKey)
+
+  t.ok(rawSocket instanceof DHT.RawSocket, 'connectRaw returns RawSocket')
+
+  const [{ localPort, remoteHost, remotePort }] = await once(rawSocket, 'socket')
+
+  t.ok(localPort > 0, 'has local port')
+  t.ok(remotePort > 0, 'has remote port')
+  t.is(typeof remoteHost, 'string', 'has remote host')
+
+  await server.close()
+})
+
+test('createServer raw option emits socket details', async function (t) {
+  const [a, b] = await swarm(t)
+
+  let resolveServerSocket
+  const serverSocket = new Promise((resolve) => {
+    resolveServerSocket = resolve
+  })
+
+  const server = a.createServer({ raw: true }, function (rawSocket) {
+    t.ok(rawSocket instanceof DHT.RawSocket, 'server receives RawSocket')
+    rawSocket.once('socket', resolveServerSocket)
+  })
+
+  await server.listen()
+
+  const clientSocket = b.connect(server.publicKey)
+  clientSocket.on('error', noop)
+
+  const serverInfo = await serverSocket
+
+  t.ok(serverInfo.localPort > 0, 'server has local port')
+  t.ok(serverInfo.remotePort > 0, 'server has remote port')
+  t.is(typeof serverInfo.remoteHost, 'string', 'server has remote host')
+
+  clientSocket.destroy()
+  await server.close()
+})
+
+function noop() {}
+
 test('createServer + connect - force holepunch', async function (t) {
   const [boot] = await swarm(t)
 

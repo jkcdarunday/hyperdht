@@ -10,6 +10,7 @@ const Router = require('./lib/router')
 const Cache = require('xache')
 const Server = require('./lib/server')
 const connect = require('./lib/connect')
+const RawSocket = require('./lib/raw-socket')
 const { FIREWALL, BOOTSTRAP_NODES, KNOWN_NODES, COMMANDS } = require('./lib/constants')
 const { hash, createKeyPair } = require('./lib/crypto')
 const RawStreamSet = require('./lib/raw-stream-set')
@@ -82,9 +83,33 @@ class HyperDHT extends DHT {
     return connect(this, remotePublicKey, opts)
   }
 
+  connectRaw(remotePublicKey, opts = {}) {
+    return this.connect(remotePublicKey, {
+      ...opts,
+      createSecretStream: () => new RawSocket()
+    })
+  }
+
   createServer(opts, onconnection) {
     if (typeof opts === 'function') return this.createServer({}, opts)
     if (opts && opts.onconnection) onconnection = opts.onconnection
+    if (opts && opts.raw) {
+      opts = {
+        ...opts,
+        createSecretStream(isInitiator, rawStream, createOpts) {
+          const socket = new RawSocket()
+          socket.rawStream = rawStream
+          return socket
+        }
+      }
+      const s = new Server(this, opts)
+      if (onconnection) s.on('connection', onconnection)
+      s.onconnection = function (socket) {
+        this.emit('connection', socket)
+        socket.start(socket.rawStream)
+      }
+      return s
+    }
     const s = new Server(this, opts)
     if (onconnection) s.on('connection', onconnection)
     return s
@@ -525,6 +550,7 @@ class HyperDHT extends DHT {
 
 HyperDHT.BOOTSTRAP = BOOTSTRAP_NODES
 HyperDHT.FIREWALL = FIREWALL
+HyperDHT.RawSocket = RawSocket
 
 module.exports = HyperDHT
 
