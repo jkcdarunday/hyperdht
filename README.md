@@ -195,6 +195,70 @@ The public key of the remote peer.
 
 The public key of the local socket.
 
+## Raw UDP mode
+
+#### `const raw = node.toRaw(socket, { timeout = 10000 })`
+
+Convert an open, stable direct connection to a raw UDP endpoint. Both applications
+must call this at an agreed stream boundary, after finishing application-level
+setup. Remove existing `data` listeners and unpipe the encrypted stream first.
+Relayed connections and peers without raw UDP support are rejected.
+
+```js
+// Run on both peers after the encrypted connection has opened.
+const raw = node.toRaw(socket)
+raw.on('message', (data, from) => {
+  // Raw UDP datagram from the authenticated peer's network endpoint.
+  // The datagram itself is not encrypted or authenticated by HyperDHT.
+})
+raw.on('failure', console.error)
+raw.on('close', () => console.log('Raw endpoint closed'))
+await raw.opened
+await raw.send(Buffer.from('hello'))
+// Later: await raw.close()
+```
+
+The API returns immediately so message handlers can be attached before awaiting
+`raw.opened`. Reception is armed before the readiness exchange; datagrams can
+arrive before `opened` resolves. Outbound traffic is enabled only after the peer
+acknowledges readiness. The timeout limits negotiation in milliseconds; failure
+rejects `opened` and closes the connection.
+
+`raw.send(data)` sends a datagram to the fixed peer endpoint and resolves to a
+boolean indicating whether it was sent. `raw.trySend(data)` queues a datagram
+without waiting for send completion and returns whether raw mode is open.
+Both return false before readiness or after closure. Neither guarantees delivery.
+`raw.address()` returns the existing local UDP address; `raw.remoteAddress()`
+returns the peer's network address. `await raw.close()` closes this endpoint and
+its encrypted connection without closing a shared DHT socket. `raw.closed`
+reports whether shutdown has begun. The `failure` event reports errors, and
+`close` signals completed cleanup. Node destruction or suspension also closes raw
+endpoints. Endpoint migration closes raw mode; reconnect to recover.
+
+No socket is created and no network header or encryption is added. The encrypted
+UDX connection remains open for coordination, keepalive and lifecycle management;
+it must no longer carry application data. Applications must provide their own
+packet security, for example WireGuard.
+
+Raw mode reserves non-UDX datagrams from the peer's exact IP and port. This also
+includes DHT messages from that endpoint and any remaining holepunch probes;
+applications must handle or discard them. DHT traffic from other endpoints
+continues normally. UDX packets are still handled by UDX, so raw payloads must not
+collide with its wire format. Only one raw endpoint may own a socket/peer address
+pair at a time.
+
+Local UDP forwarding and WireGuard configuration belong to the application.
+[examples/wireguard.js](examples/wireguard.js) uses the application-side
+[UDP bridge helper](examples/helpers/udp-bridge.js) to bind a loopback socket,
+forward packets, restrict the local source port, and clean up that socket. None
+of that forwarding policy is part of the HyperDHT library.
+
+Run `node test/udp-proxy.js` to exercise this proxy over an isolated local DHT
+network with forced holepunching. The test checks bidirectional datagrams,
+preserved network ports, local source filtering, and socket cleanup. It uses
+ordinary UDP sockets in place of WireGuard listeners; it does not establish a
+WireGuard tunnel.
+
 ## Additional peer discovery
 
 #### `const stream = node.lookup(topic, [options])`

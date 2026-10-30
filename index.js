@@ -14,6 +14,7 @@ const { FIREWALL, BOOTSTRAP_NODES, COMMANDS } = require('./lib/constants')
 const { hash, createKeyPair } = require('./lib/crypto')
 const RawStreamSet = require('./lib/raw-stream-set')
 const ConnectionPool = require('./lib/connection-pool')
+const RawUDP = require('./lib/raw-udp')
 const { STREAM_NOT_CONNECTED } = require('./lib/errors')
 
 const DEFAULTS = {
@@ -44,6 +45,13 @@ class HyperDHT extends DHT {
 
     this._router = new Router(this, router)
     this._socketPool = new SocketPool(this, opts.host || '0.0.0.0')
+    this._rawUDP = new Set()
+
+    // dht-rpc binds this method to its sockets on the next tick and on resume.
+    const onmessage = this.io.onmessage.bind(this.io)
+    this.io.onmessage = (socket, data, address) => {
+      if (!this._onrawudp(socket, data, address)) onmessage(socket, data, address)
+    }
     this._persistent = null
     this._validatedLocalAddresses = new Map()
     this._relayAddressesCache = new Cache(relayAddresses)
@@ -88,6 +96,17 @@ class HyperDHT extends DHT {
 
   connect(remotePublicKey, opts) {
     return connect(this, remotePublicKey, opts)
+  }
+
+  toRaw(connection, opts) {
+    return RawUDP.convert(this, connection, opts)
+  }
+
+  _onrawudp(socket, data, address) {
+    for (const raw of this._rawUDP) {
+      if (raw._onrawmessage(socket, data, address)) return true
+    }
+    return false
   }
 
   createServer(opts, onconnection) {
